@@ -1,0 +1,202 @@
+﻿Build1=Default,b4a.example
+File1=Layout.bal
+FileGroup1=Default Group
+Group=Default Group
+Library1=b4xcollections
+Library10=stringutils
+Library2=b4xformatter
+Library3=ble2
+Library4=core
+Library5=phone
+Library6=runtimepermissions
+Library7=xcustomlistview
+Library8=xui
+Library9=xui views
+ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: https://www.b4x.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="28" android:targetSdkVersion="33"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~CreateResourceFromFile(Macro, Themes.LightTheme)~\n~'End of default text.~\n~AddPermission(android.permission.ACCESS_FINE_LOCATION)~\n~AddPermission(android.permission.BLUETOOTH_SCAN)~\n~AddPermission(android.permission.BLUETOOTH_ADVERTISE)~\n~AddPermission(android.permission.BLUETOOTH_CONNECT)~\n~
+Module1=Starter
+NumberOfFiles=1
+NumberOfLibraries=10
+NumberOfModules=1
+Version=12.8
+@EndOfDesignText@
+#Region  Project Attributes 
+	#ApplicationLabel: Pi 5 GPIO
+	#VersionCode: 1
+	#VersionName: 11272023
+	'SupportedOrientations possible values: unspecified, landscape or portrait.
+	#SupportedOrientations: portrait
+	#CanInstallToExternalStorage: False
+#End Region
+
+#Region  Activity Attributes 
+	#FullScreen: False
+	#IncludeTitle: True
+#End Region
+
+Sub Process_Globals
+	'These global variables will be declared once when the application starts.
+	'These variables can be accessed from all modules.
+	Private xui As XUI
+	Dim bleDataIn() As Byte
+	Dim cticData(8) As Byte
+	Dim sb As StringBuilder
+	Dim temptimer As Timer
+End Sub
+
+Sub Globals
+	'These global variables will be redeclared each time the activity is created.
+	Private AnotherProgressBar1 As AnotherProgressBar
+	Private btnConnected As Button
+	Private btnDisconnected As Button
+	Private btnScan As Button
+	Private lblstatus As Label
+	Private lbltemp As Label
+	Private btnLED As Button
+End Sub
+
+Sub Activity_Create(FirstTime As Boolean)
+	Activity.LoadLayout("Layout")
+	temptimer.Initialize("temptimer",5000)
+	btnScan.Enabled = True
+	btnScan.Visible = True
+	btnConnected.Visible = False
+	btnConnected.Enabled = False
+	temptimer.Enabled = False
+
+End Sub
+  
+Private Sub temptimer_Tick
+	If Starter.connected = True Then
+		cticData(0) = 0x54
+		cticData(1) = 0x00
+		Starter.manager.WriteData(Starter.gpio_sid,Starter.gpio_ctic,cticData)
+	End If
+End Sub
+
+Sub AfterScan(Devices As Map)
+	Dim items As List
+	items.Initialize
+	For Each name As String In Devices.Keys
+		items.Add(name)
+	Next
+	If items.Size > 0 Then
+		InputListAsync(items, "Select Device", 0, False)
+		Wait For InputList_Result (Index As Int)
+		If Index <> DialogResponse.CANCEL Then
+			Dim id As String = Devices.Get(items.Get(Index))
+			Log("Connect to: " & id)
+			Starter.Connect(id)
+			AnotherProgressBar1.Visible = False
+			lblstatus.TextColor = xui.Color_Green
+			lblstatus.Text = "Pi 5 CONNECTED"
+			lblstatus.Visible = True
+		End If
+	Else
+		btnDisconnected.Visible = False
+		btnScan.Visible = True
+		AnotherProgressBar1.Visible = False
+		lblstatus.TextColor = xui.Color_Red
+		lblstatus.Visible = True
+		lblstatus.Text = " Pi 5 NOT FOUND"
+
+	End If
+	
+End Sub
+
+Sub SetState (connected As Boolean)
+	btnScan.Enabled = Not(connected)
+	btnScan.Visible = Not(connected)
+	btnConnected.Visible = connected
+	btnConnected.Enabled = connected
+	'temptimer.Enabled = connected
+	If connected = False Then
+		lblstatus.Visible = False
+		lblstatus.Text = ""
+	End If
+End Sub
+
+Sub DataAvailable (Service As String, Characteristics As Map)
+	If Service = Starter.gpio_sid Then
+		For Each key As String In Characteristics.Keys
+			If key = Starter.gpio_ctic Then
+				bleDataIn = Characteristics.Get(key) 	'get max if 5 bytes from BLE peripheral
+				If bleDataIn.Length > 0 Then			'check for valid data from the BLE peripheral
+					Select bleDataIn(0)					'bleDataIn(0) = sensor ID
+						Case 0x35 'sensor data coming in
+							Select bleDataIn.Length
+								Case 5
+									sb.Initialize
+									lbltemp.Text = ""
+									lbltemp.Text = sb.Append(Chr(bleDataIn(1))).Append(Chr(bleDataIn(2))).Append(Chr(bleDataIn(3))).Append(Chr(bleDataIn(4)))
+								Case 4
+									sb.Initialize
+									lbltemp.Text = ""
+									lbltemp.Text = sb.Append(Chr(bleDataIn(1))).Append(Chr(bleDataIn(2))).Append(Chr(bleDataIn(3)))
+								Case 3
+									sb.Initialize
+									lbltemp.Text = ""
+									lbltemp.Text = sb.Append(Chr(bleDataIn(1))).Append(Chr(bleDataIn(2)))
+								Case 2
+									sb.Initialize
+									lbltemp.Text = ""
+									lbltemp.Text = sb.Append(Chr(bleDataIn(1)))
+								Case Else
+									sb.Initialize
+									lbltemp.TextColor = xui.Color_Red
+									lbltemp.Text = ""
+									lbltemp.Text = "ERROR"
+							End Select
+					End Select
+				End If
+			End If
+		Next
+	End If
+End Sub
+Sub Activity_Resume
+
+End Sub
+
+Sub Activity_Pause (UserClosed As Boolean)
+
+End Sub
+
+Private Sub btnScan_Click
+	lblstatus.Visible = False
+	AnotherProgressBar1.Visible = True
+	btnDisconnected.Visible = True
+	btnScan.Visible = False
+	Dim Permissions As List
+	Dim phone As Phone
+	If phone.SdkVersion >= 31 Then
+		Permissions = Array("android.permission.BLUETOOTH_SCAN", "android.permission.BLUETOOTH_CONNECT", Starter.rp.PERMISSION_ACCESS_FINE_LOCATION)
+	Else
+		Permissions = Array(Starter.rp.PERMISSION_ACCESS_FINE_LOCATION)
+	End If
+	For Each per As String In Permissions
+		Starter.rp.CheckAndRequest(per)
+		Wait For Activity_PermissionResult (Permission As String, Result As Boolean)
+		If Result = False Then
+			ToastMessageShow("No permission: " & Permission, True)
+			Return
+		End If
+	Next
+
+	Starter.Scan
+End Sub
+
+Private Sub btnDisconnected_Click
+	
+End Sub
+
+Private Sub btnConnected_Click
+	temptimer.Enabled = False
+	lbltemp.Text = ""
+	lblstatus.Text = ""
+	Starter.Disconnect
+	
+End Sub
+
+Private Sub btnLED_Click
+	cticData(0) = 0x55
+	Starter.manager.WriteData(Starter.gpio_sid,Starter.gpio_ctic,cticData)
+End Sub
